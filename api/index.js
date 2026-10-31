@@ -12,6 +12,7 @@ app.use(express.json());
 app.use(cors());
 app.use(express.json());
 app.use("/api/tasks", require("./routes/tasks"));
+app.use("/api/tasks", require("./routes/tasks"));
 
 // API kiem tra server
 app.get("/", (req, res) => {
