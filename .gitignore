@@ -1,0 +1,9 @@
+
+# Node.js
+api/node_modules/
+api/.env
+api/coverage/
+api/*.log
+
+# Flutter environment
+TaskManager/.env
