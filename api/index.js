@@ -6,22 +6,22 @@ require("dotenv").config();
 
 const app = express();
 
-// Cho phep API nhan va xu ly JSON
+// Middleware: xử lý CORS và dữ liệu JSON
 app.use(cors());
 app.use(express.json());
-app.use(cors());
-app.use(express.json());
-app.use("/api/tasks", require("./routes/tasks"));
+
+// Khai báo các API routes
+app.use("/api/auth", require("./routes/auth"));
 app.use("/api/tasks", require("./routes/tasks"));
 
-// API kiem tra server
+// API kiểm tra server
 app.get("/", (req, res) => {
   res.json({
     message: "Task Manager API is running",
   });
 });
 
-// API kiem tra ket noi MongoDB
+// API kiểm tra kết nối MongoDB
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
