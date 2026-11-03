@@ -7,3 +7,6 @@ api/*.log
 
 # Flutter environment
 TaskManager/.env
+
+# IDE
+.idea/

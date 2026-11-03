@@ -34,6 +34,24 @@ const taskSchema = new mongoose.Schema(
       default: null,
     },
 
+        // Danh sach nguoi duoc giao cong viec
+        assigneeIds: {
+          type: [
+            {
+              type: mongoose.Schema.Types.ObjectId,
+              ref: "User",
+            },
+          ],
+          default: [],
+        },
+
+        // Nguoi phu trach chinh
+        primaryAssigneeId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          default: null,
+        },
+
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
