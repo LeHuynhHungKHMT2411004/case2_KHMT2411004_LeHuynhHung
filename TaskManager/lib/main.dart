@@ -2123,7 +2123,7 @@ class _TaskActivitiesDialogState extends State<TaskActivitiesDialog> {
                     ? const Center(child: Text('Chua co hoat dong nao.'))
                     : ListView.separated(
                         itemCount: _activities.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        separatorBuilder: (context, index) => const Divider(height: 1),
                         itemBuilder: (context, index) {
                           final item = _activities[index];
                           final user = item['userId'] is Map
@@ -2166,9 +2166,6 @@ class _TaskActivitiesDialogState extends State<TaskActivitiesDialog> {
           child: const Text('Dong'),
         ),
       ],
-    );
-  }
-}
     );
   }
 }
