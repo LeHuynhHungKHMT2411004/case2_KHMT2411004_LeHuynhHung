@@ -4,11 +4,59 @@ const mongoose = require("mongoose");
 const Task = require("../models/Task");
 const TaskShare = require("../models/TaskShare");
 const authMiddleware = require("../middleware/authMiddleware");
+const { notifyUser } = require("../services/notificationService");
 
 const router = express.Router();
 
 const statuses = ["todo", "in_progress", "completed"];
 const priorities = ["low", "medium", "high"];
+
+// Gui thong bao cho nhung nguoi lien quan den cong viec
+async function notifyTaskParticipants(task, actorId, notificationData) {
+  try {
+    // Lay danh sach nguoi duoc chia se cong viec
+    const shares = await TaskShare.find({
+      taskId: task._id,
+    }).select("userId");
+
+    // Tao danh sach nguoi nhan, tu dong loai bo ID trung lap
+    const recipientIds = new Set();
+
+    // Them nguoi tao cong viec
+    if (task.createdBy) {
+      recipientIds.add(String(task.createdBy));
+    }
+
+    // Them nhung nguoi duoc giao cong viec
+    for (const userId of task.assigneeIds || []) {
+      recipientIds.add(String(userId));
+    }
+
+    // Them nhung nguoi duoc chia se cong viec
+    for (const share of shares) {
+      recipientIds.add(String(share.userId));
+    }
+
+    // Khong gui thong bao cho nguoi thuc hien thao tac
+    recipientIds.delete(String(actorId));
+
+    // Gui thong bao cho tung nguoi nhan
+    for (const recipientId of recipientIds) {
+      await notifyUser({
+        recipientId,
+        actorId,
+        taskId: task._id,
+        type: notificationData.type,
+        title: notificationData.title,
+        message: notificationData.message,
+        metadata: notificationData.metadata,
+        emailSubject: notificationData.emailSubject,
+      });
+    }
+  } catch (error) {
+    console.error("Notify task participants error:", error.message);
+  }
+}
 
 // Kiem tra quyen truy cap cong viec cua nguoi dung
 async function getTaskAccess(task, userId) {
@@ -134,7 +182,6 @@ router.post("/", async (req, res) => {
   }
 });
 
-// READ ALL: Lay danh sach cong viec cua nguoi dang nhap
 // READ ALL: Lay danh sach cong viec nguoi dung co quyen truy cap
 router.get("/", async (req, res) => {
   try {
@@ -204,7 +251,6 @@ router.get("/", async (req, res) => {
   }
 });
 
-// READ ONE: Lay chi tiet mot cong viec
 // READ ONE: Lay chi tiet cong viec nguoi dung co quyen truy cap
 router.get("/:id", async (req, res) => {
   try {
@@ -421,9 +467,66 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
+    // Luu lai trang thai cu truoc khi cap nhat
+    const previousStatus = task.status;
+
+    // Xac dinh nhung truong thuc su thay doi
+    const changedFields = Object.keys(updates).filter((field) => {
+      const oldValue = task[field];
+      const newValue = updates[field];
+
+      // So sanh ngay thang theo timestamp
+      if (field === "dueDate") {
+        const oldTime = oldValue
+          ? new Date(oldValue).getTime()
+          : null;
+
+        const newTime = newValue
+          ? new Date(newValue).getTime()
+          : null;
+
+        return oldTime !== newTime;
+      }
+
+      return oldValue !== newValue;
+    });
+
     // Luu thay doi
     task.set(updates);
     await task.save();
+
+    // Gui thong bao neu co thay doi thuc su
+    if (changedFields.length > 0) {
+      const isNewlyCompleted =
+        previousStatus !== "completed" &&
+        task.status === "completed";
+
+      if (isNewlyCompleted) {
+        // Thong bao khi cong viec duoc hoan thanh
+        await notifyTaskParticipants(task, req.user._id, {
+          type: "task_completed",
+          title: "Cong viec da hoan thanh",
+          message: `${req.user.name} da hoan thanh cong viec "${task.title}".`,
+          metadata: {
+            taskTitle: task.title,
+            changedFields,
+          },
+          emailSubject: `Cong viec da hoan thanh: ${task.title}`,
+        });
+      } else {
+        // Thong bao khi noi dung cong viec duoc cap nhat
+        await notifyTaskParticipants(task, req.user._id, {
+          type: "task_updated",
+          title: "Cong viec da duoc cap nhat",
+          message: `${req.user.name} da cap nhat cong viec "${task.title}".`,
+          metadata: {
+            taskTitle: task.title,
+            changedFields,
+          },
+          emailSubject: `Cong viec da duoc cap nhat: ${task.title}`,
+        });
+      }
+    }
 
     return res.status(200).json({
       message: "Cap nhat cong viec thanh cong.",
@@ -448,7 +551,7 @@ router.patch("/:id", async (req, res) => {
     });
   }
 });
-// DELETE: Xoa cong viec
+
 // DELETE: Xoa cong viec va cac quyen chia se lien quan
 router.delete("/:id", async (req, res) => {
   try {

@@ -4,6 +4,8 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 require("dotenv").config();
 
+const { startReminderScheduler } = require("./services/reminderScheduler");
+
 const app = express();
 
 // Middleware: xử lý CORS và dữ liệu JSON
@@ -16,6 +18,7 @@ app.use("/api/tasks", require("./routes/tasks"));
 app.use("/api/tasks", require("./routes/assignments"));
 app.use("/api/tasks", require("./routes/shares"));
 app.use("/api/users", require("./routes/users"));
+app.use("/api/notifications", require("./routes/notifications"));
 
 // API kiểm tra server
 app.get("/", (req, res) => {
@@ -47,6 +50,9 @@ async function startServer() {
     await mongoose.connect(process.env.MONGODB_URI);
 
     console.log("Connected to MongoDB Atlas successfully!");
+
+    // Khởi động chức năng nhắc hạn công việc
+    startReminderScheduler();
 
     app.listen(PORT, () => {
       console.log(`Server running at http://localhost:${PORT}`);

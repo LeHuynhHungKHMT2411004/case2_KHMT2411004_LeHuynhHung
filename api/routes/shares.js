@@ -1,17 +1,18 @@
 
 const express = require("express");
 const mongoose = require("mongoose");
-const Task = require("../models/Task");
-const TaskShare = require("../models/TaskShare");
-const User = require("../models/User");
+
 const authMiddleware = require("../middleware/authMiddleware");
+const Task = require("../models/Task");
+const User = require("../models/User");
+const TaskShare = require("../models/TaskShare");
+const { notifyUser } = require("../services/notificationService");
 
 const router = express.Router();
 
-const permissions = ["viewer", "editor"];
-
-// Tat ca API chia se deu yeu cau dang nhap
 router.use(authMiddleware);
+
+const permissions = ["viewer", "editor"];
 
 // GET: Lay danh sach nguoi duoc chia se cong viec
 router.get("/:taskId/shares", async (req, res) => {
@@ -24,7 +25,6 @@ router.get("/:taskId/shares", async (req, res) => {
       });
     }
 
-    // Chi nguoi tao cong viec duoc xem danh sach chia se
     const task = await Task.findOne({
       _id: taskId,
       createdBy: req.user._id,
@@ -42,7 +42,6 @@ router.get("/:taskId/shares", async (req, res) => {
       .sort({ createdAt: -1 });
 
     return res.status(200).json({
-      count: shares.length,
       shares,
     });
   } catch (error) {
@@ -53,6 +52,7 @@ router.get("/:taskId/shares", async (req, res) => {
     });
   }
 });
+
 
 // POST: Chia se cong viec cho mot nguoi
 router.post("/:taskId/shares", async (req, res) => {
@@ -90,7 +90,6 @@ router.post("/:taskId/shares", async (req, res) => {
       });
     }
 
-    // Kiem tra quyen so huu cong viec
     const task = await Task.findOne({
       _id: taskId,
       createdBy: req.user._id,
@@ -102,14 +101,12 @@ router.post("/:taskId/shares", async (req, res) => {
       });
     }
 
-    // Khong cho phep chia se cho chinh nguoi tao
     if (String(userId) === String(req.user._id)) {
       return res.status(400).json({
         message: "Khong the chia se cong viec cho chinh minh.",
       });
     }
 
-    // Kiem tra tai khoan duoc chia se co ton tai
     const user = await User.findById(userId).select("_id");
 
     if (!user) {
@@ -118,13 +115,13 @@ router.post("/:taskId/shares", async (req, res) => {
       });
     }
 
-    // Neu da chia se truoc do thi cap nhat quyen
-    // Neu chua thi tao ban ghi chia se moi
+    const existingShare = await TaskShare.findOne({
+      taskId,
+      userId,
+    });
+
     const share = await TaskShare.findOneAndUpdate(
-      {
-        taskId,
-        userId,
-      },
+      { taskId, userId },
       {
         $set: {
           permission,
@@ -141,6 +138,37 @@ router.post("/:taskId/shares", async (req, res) => {
       .populate("userId", "name email")
       .populate("sharedBy", "name email");
 
+    // Gui thong bao khi chia se moi hoac thay doi quyen
+    if (!existingShare) {
+      await notifyUser({
+        recipientId: userId,
+        actorId: req.user._id,
+        taskId: task._id,
+        type: "task_shared",
+        title: "Ban duoc chia se cong viec",
+        message: `${req.user.name} da chia se cong viec "${task.title}" voi ban. Quyen truy cap: ${permission}.`,
+        metadata: {
+          taskTitle: task.title,
+          permission,
+        },
+        emailSubject: `Ban duoc chia se cong viec: ${task.title}`,
+      });
+    } else if (existingShare.permission !== permission) {
+      await notifyUser({
+        recipientId: userId,
+        actorId: req.user._id,
+        taskId: task._id,
+        type: "task_shared",
+        title: "Quyen truy cap cong viec da thay doi",
+        message: `${req.user.name} da thay doi quyen truy cap cong viec "${task.title}" cua ban thanh ${permission}.`,
+        metadata: {
+          taskTitle: task.title,
+          permission,
+        },
+        emailSubject: `Quyen truy cap da thay doi: ${task.title}`,
+      });
+    }
+
     return res.status(200).json({
       message: "Chia se cong viec thanh cong.",
       share,
@@ -153,6 +181,7 @@ router.post("/:taskId/shares", async (req, res) => {
     });
   }
 });
+
 
 // PATCH: Thay doi quyen chia se
 router.patch("/:taskId/shares/:shareId", async (req, res) => {
@@ -197,6 +226,17 @@ router.patch("/:taskId/shares/:shareId", async (req, res) => {
       });
     }
 
+    const existingShare = await TaskShare.findOne({
+      _id: shareId,
+      taskId,
+    });
+
+    if (!existingShare) {
+      return res.status(404).json({
+        message: "Khong tim thay thong tin chia se.",
+      });
+    }
+
     const share = await TaskShare.findOneAndUpdate(
       {
         _id: shareId,
@@ -213,9 +253,20 @@ router.patch("/:taskId/shares/:shareId", async (req, res) => {
       .populate("userId", "name email")
       .populate("sharedBy", "name email");
 
-    if (!share) {
-      return res.status(404).json({
-        message: "Khong tim thay thong tin chia se.",
+    // Gui thong bao neu quyen truy cap thuc su thay doi
+    if (existingShare.permission !== permission) {
+      await notifyUser({
+        recipientId: existingShare.userId,
+        actorId: req.user._id,
+        taskId: task._id,
+        type: "task_shared",
+        title: "Quyen truy cap cong viec da thay doi",
+        message: `${req.user.name} da thay doi quyen truy cap cong viec "${task.title}" cua ban thanh ${permission}.`,
+        metadata: {
+          taskTitle: task.title,
+          permission,
+        },
+        emailSubject: `Quyen truy cap da thay doi: ${task.title}`,
       });
     }
 
@@ -231,6 +282,7 @@ router.patch("/:taskId/shares/:shareId", async (req, res) => {
     });
   }
 });
+
 
 // DELETE: Thu hoi quyen chia se
 router.delete("/:taskId/shares/:shareId", async (req, res) => {
@@ -257,19 +309,39 @@ router.delete("/:taskId/shares/:shareId", async (req, res) => {
       });
     }
 
-    const share = await TaskShare.findOneAndDelete({
+    const existingShare = await TaskShare.findOne({
       _id: shareId,
       taskId,
     });
 
-    if (!share) {
+    if (!existingShare) {
       return res.status(404).json({
         message: "Khong tim thay thong tin chia se.",
       });
     }
 
+    await TaskShare.deleteOne({
+      _id: shareId,
+      taskId,
+    });
+
+    // Thong bao cho nguoi bi thu hoi quyen chia se
+    await notifyUser({
+      recipientId: existingShare.userId,
+      actorId: req.user._id,
+      taskId: task._id,
+      type: "task_shared",
+      title: "Quyen truy cap cong viec da bi thu hoi",
+      message: `${req.user.name} da thu hoi quyen truy cap cong viec "${task.title}" cua ban.`,
+      metadata: {
+        taskTitle: task.title,
+        revoked: true,
+      },
+      emailSubject: `Quyen truy cap da bi thu hoi: ${task.title}`,
+    });
+
     return res.status(200).json({
-      message: "Da thu hoi quyen chia se thanh cong.",
+      message: "Thu hoi quyen chia se thanh cong.",
     });
   } catch (error) {
     console.error("Delete share error:", error.message);
@@ -279,5 +351,6 @@ router.delete("/:taskId/shares/:shareId", async (req, res) => {
     });
   }
 });
+
 
 module.exports = router;

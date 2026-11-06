@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const Task = require("../models/Task");
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
+const { notifyUser } = require("../services/notificationService");
 
 const router = express.Router();
 
@@ -84,6 +85,9 @@ router.put("/:taskId/assignees", async (req, res) => {
       });
     }
 
+    // Lưu danh sách người được giao trước khi cập nhật
+    const oldAssigneeIds = task.assigneeIds.map((id) => String(id));
+
     // Khong cho phep giao cong viec cho chinh nguoi tao
     if (uniqueUserIds.includes(String(req.user._id))) {
       return res.status(400).json({
@@ -136,6 +140,27 @@ router.put("/:taskId/assignees", async (req, res) => {
     task.primaryAssigneeId = selectedPrimaryId;
 
     await task.save();
+
+    // Xác định những người vừa được giao công việc mới
+    const newlyAssignedIds = uniqueUserIds.filter(
+      (id) => !oldAssigneeIds.includes(String(id))
+    );
+
+    // Gửi thông báo cho từng người vừa được giao
+    for (const userId of newlyAssignedIds) {
+      await notifyUser({
+        recipientId: userId,
+        actorId: req.user._id,
+        taskId: task._id,
+        type: "task_assigned",
+        title: "Bạn được giao công việc mới",
+        message: `${req.user.name} đã giao cho bạn công việc "${task.title}".`,
+        metadata: {
+          taskTitle: task.title,
+        },
+        emailSubject: `Bạn được giao công việc: ${task.title}`,
+      });
+    }
 
     const updatedTask = await Task.findById(task._id)
       .populate("assigneeIds", "name email")

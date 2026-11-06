@@ -3,18 +3,23 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-// Dia chi Backend tren Android Emulator.
+// =====================================================
+// CAU HINH API
+// =====================================================
+
 const String apiBaseUrl = 'http://10.0.2.2:3000/api';
 
 void main() {
   runApp(const TaskManagerApp());
 }
 
-// Doc JSON an toan.
+// =====================================================
+// CAC HAM DUNG CHUNG
+// =====================================================
+
 Map<String, dynamic> readJson(String body) {
   try {
     final result = jsonDecode(body);
-
     if (result is Map) {
       return Map<String, dynamic>.from(result);
     }
@@ -23,14 +28,12 @@ Map<String, dynamic> readJson(String body) {
   return {};
 }
 
-// Dinh dang ngay thang.
 String formatDate(dynamic value) {
   if (value == null || value.toString().isEmpty) {
     return 'Chua dat han';
   }
 
   final date = DateTime.tryParse(value.toString());
-
   if (date == null) return 'Khong xac dinh';
 
   return '${date.day.toString().padLeft(2, '0')}/'
@@ -258,7 +261,6 @@ class _AuthScreenState extends State<AuthScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const SizedBox(height: 25),
-
                     Center(
                       child: Container(
                         width: 76,
@@ -274,9 +276,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 22),
-
                     const Text(
                       'Task Manager',
                       textAlign: TextAlign.center,
@@ -286,9 +286,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         color: Color(0xFF25264A),
                       ),
                     ),
-
                     const SizedBox(height: 10),
-
                     Text(
                       _isLogin
                           ? 'Dang nhap de quan ly cong viec'
@@ -296,9 +294,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Colors.grey),
                     ),
-
                     const SizedBox(height: 35),
-
                     Card(
                       color: Colors.white,
                       child: Padding(
@@ -313,9 +309,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-
                             const SizedBox(height: 22),
-
                             if (!_isLogin) ...[
                               TextFormField(
                                 controller: _nameController,
@@ -333,7 +327,6 @@ class _AuthScreenState extends State<AuthScreen> {
                               ),
                               const SizedBox(height: 16),
                             ],
-
                             TextFormField(
                               controller: _emailController,
                               keyboardType: TextInputType.emailAddress,
@@ -356,9 +349,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                 return null;
                               },
                             ),
-
                             const SizedBox(height: 16),
-
                             TextFormField(
                               controller: _passwordController,
                               obscureText: _obscurePassword,
@@ -392,9 +383,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                 return null;
                               },
                             ),
-
                             const SizedBox(height: 25),
-
                             SizedBox(
                               height: 52,
                               child: ElevatedButton(
@@ -421,9 +410,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                       ),
                               ),
                             ),
-
                             const SizedBox(height: 18),
-
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -486,6 +473,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isLoading = true;
   bool _isSaving = false;
+  int _unreadNotificationCount = 0;
 
   String _filter = 'all';
   String? _loadError;
@@ -499,15 +487,53 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadTasks();
+    _loadUnreadNotificationCount();
   }
 
   void _showMessage(String message) {
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  // GET: Lay danh sach cong viec.
+  Future<void> _openNotifications() async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NotificationScreen(token: widget.token),
+      ),
+    );
+
+    if (!mounted) return;
+    await _loadUnreadNotificationCount();
+  }
+
+  Future<void> _loadUnreadNotificationCount() async {
+    try {
+      final response = await http
+          .get(
+            Uri.parse('$apiBaseUrl/notifications/unread-count'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 15));
+
+      final data = readJson(response.body);
+
+      if (response.statusCode == 200 && mounted) {
+        setState(() {
+          _unreadNotificationCount =
+              (data['unreadCount'] as num?)?.toInt() ?? 0;
+        });
+      }
+    } catch (e) {
+      debugPrint('Load unread notification count error: $e');
+    }
+  }
+
   Future<void> _loadTasks() async {
+    if (!mounted) return;
+
     setState(() {
       _isLoading = true;
       _loadError = null;
@@ -553,14 +579,13 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // POST / PATCH: Them hoac sua cong viec.
   Future<void> _openTaskForm({Map<String, dynamic>? task}) async {
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (_) => TaskFormDialog(task: task),
     );
 
-    if (result == null) return;
+    if (result == null || !mounted) return;
 
     setState(() => _isSaving = true);
 
@@ -605,7 +630,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Mo man hinh quan ly giao viec va chia se.
   Future<void> _openTaskMembers(Map<String, dynamic> task) async {
     await Navigator.push<void>(
       context,
@@ -619,10 +643,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // PATCH: Cap nhat trang thai.
   Future<void> _updateStatus(Map<String, dynamic> task, String status) async {
     final id = task['_id']?.toString();
-
     if (id == null || id.isEmpty) return;
 
     try {
@@ -648,7 +670,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // DELETE: Xoa cong viec.
   Future<void> _deleteTask(Map<String, dynamic> task) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -672,7 +693,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (confirm != true) return;
 
     final id = task['_id']?.toString();
-
     if (id == null || id.isEmpty) return;
 
     try {
@@ -695,7 +715,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Dang xuat.
   void _logout() {
     Navigator.pushAndRemoveUntil(
       context,
@@ -748,15 +767,30 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _tag(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
   Widget _buildTaskCard(Map<String, dynamic> task) {
     final status = task['status']?.toString() ?? 'todo';
     final priority = task['priority']?.toString() ?? 'medium';
-
     final description = task['description']?.toString() ?? '';
 
-    // Lay thong tin quyen truy cap tu Backend.
     final accessData = task['access'];
-
     final access = accessData is Map
         ? Map<String, dynamic>.from(accessData)
         : <String, dynamic>{};
@@ -794,7 +828,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
-
                 if (isCreator)
                   IconButton(
                     tooltip: 'Giao viec va chia se',
@@ -804,7 +837,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: Color(0xFF5B5FEF),
                     ),
                   ),
-
                 if (hasActions)
                   PopupMenuButton<String>(
                     onSelected: (value) {
@@ -828,7 +860,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             ],
                           ),
                         ),
-
                       if (canDelete)
                         const PopupMenuItem(
                           value: 'delete',
@@ -840,11 +871,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             ],
                           ),
                         ),
-
                       if (canUpdateStatus) ...[
                         if (canEditContent || canDelete)
                           const PopupMenuDivider(),
-
                         const PopupMenuItem(
                           value: 'status:todo',
                           child: Text('Chuyen sang: Chua thuc hien'),
@@ -862,7 +891,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
               ],
             ),
-
             if (description.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
@@ -870,9 +898,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: const TextStyle(color: Colors.black54, height: 1.4),
               ),
             ],
-
             const SizedBox(height: 14),
-
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -884,9 +910,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
-
             const SizedBox(height: 12),
-
             Row(
               children: [
                 const Icon(
@@ -902,24 +926,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _tag(String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
         ),
       ),
     );
@@ -994,6 +1000,29 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _filterChip(String value, String label) {
+    final selected = _filter == value;
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: selected,
+        onSelected: (_) {
+          setState(() => _filter = value);
+        },
+        selectedColor: const Color(0xFF5B5FEF),
+        labelStyle: TextStyle(
+          color: selected ? Colors.white : Colors.black87,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
+        backgroundColor: Colors.white,
+        side: BorderSide.none,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final displayName = widget.name.isEmpty ? 'Ban' : widget.name;
@@ -1005,6 +1034,46 @@ class _HomeScreenState extends State<HomeScreen> {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Thong bao',
+            onPressed: _openNotifications,
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.notifications_outlined),
+                if (_unreadNotificationCount > 0)
+                  Positioned(
+                    right: -7,
+                    top: -7,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        _unreadNotificationCount > 99
+                            ? '99+'
+                            : '$_unreadNotificationCount',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
           IconButton(
             tooltip: 'Tai lai',
             onPressed: _isLoading ? null : _loadTasks,
@@ -1018,11 +1087,9 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(width: 8),
         ],
       ),
-
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Loi chao va thong ke.
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 20, 18, 16),
             child: Column(
@@ -1042,7 +1109,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: const TextStyle(color: Colors.grey, fontSize: 13),
                 ),
                 const SizedBox(height: 20),
-
                 Row(
                   children: [
                     _statCard(
@@ -1070,8 +1136,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-
-          // Bo loc cong viec.
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -1084,10 +1148,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-
           const SizedBox(height: 12),
-
-          // Danh sach cong viec.
           Expanded(
             child: _isLoading && _tasks.isEmpty
                 ? const Center(child: CircularProgressIndicator())
@@ -1108,7 +1169,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isSaving ? null : _openTaskForm,
         backgroundColor: const Color(0xFF5B5FEF),
@@ -1118,27 +1178,404 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+}
 
-  Widget _filterChip(String value, String label) {
-    final selected = _filter == value;
+// =====================================================
+// NOTIFICATION SCREEN: MAN HINH THONG BAO
+// =====================================================
 
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        label: Text(label),
-        selected: selected,
-        onSelected: (_) {
-          setState(() => _filter = value);
-        },
-        selectedColor: const Color(0xFF5B5FEF),
-        labelStyle: TextStyle(
-          color: selected ? Colors.white : Colors.black87,
-          fontWeight: FontWeight.w600,
-          fontSize: 12,
+class NotificationScreen extends StatefulWidget {
+  final String token;
+
+  const NotificationScreen({super.key, required this.token});
+
+  @override
+  State<NotificationScreen> createState() => _NotificationScreenState();
+}
+
+class _NotificationScreenState extends State<NotificationScreen> {
+  List<Map<String, dynamic>> _notifications = [];
+
+  bool _isLoading = true;
+  bool _isMarkingAllRead = false;
+  String? _loadError;
+
+  Map<String, String> get _headers => {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ${widget.token}',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNotifications();
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _loadNotifications() async {
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
+
+    try {
+      final response = await http
+          .get(Uri.parse('$apiBaseUrl/notifications'), headers: _headers)
+          .timeout(const Duration(seconds: 15));
+
+      final data = readJson(response.body);
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          data['message']?.toString() ?? 'Khong the tai thong bao.',
+        );
+      }
+
+      final rawNotifications = data['notifications'];
+
+      final notifications = rawNotifications is List
+          ? rawNotifications
+                .whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .toList()
+          : <Map<String, dynamic>>[];
+
+      if (!mounted) return;
+
+      setState(() {
+        _notifications = notifications;
+        _isLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Load notifications error: $e');
+
+      if (!mounted) return;
+
+      setState(() {
+        _loadError = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _markAsRead(Map<String, dynamic> notification) async {
+    if (notification['isRead'] == true) return;
+
+    final id = notification['_id']?.toString();
+    if (id == null || id.isEmpty) return;
+
+    try {
+      final response = await http
+          .patch(
+            Uri.parse('$apiBaseUrl/notifications/$id/read'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 15));
+
+      final data = readJson(response.body);
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          data['message']?.toString() ?? 'Khong the danh dau da doc.',
+        );
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        final index = _notifications.indexWhere(
+          (item) => item['_id']?.toString() == id,
+        );
+
+        if (index != -1) {
+          _notifications[index]['isRead'] = true;
+        }
+      });
+    } catch (e) {
+      debugPrint('Mark notification as read error: $e');
+      _showMessage('Khong the danh dau thong bao da doc.');
+    }
+  }
+
+  Future<void> _markAllAsRead() async {
+    if (_isMarkingAllRead) return;
+
+    setState(() => _isMarkingAllRead = true);
+
+    try {
+      final response = await http
+          .patch(
+            Uri.parse('$apiBaseUrl/notifications/read-all'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 15));
+
+      final data = readJson(response.body);
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          data['message']?.toString() ?? 'Khong the danh dau tat ca da doc.',
+        );
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        for (final notification in _notifications) {
+          notification['isRead'] = true;
+        }
+
+        _isMarkingAllRead = false;
+      });
+
+      _showMessage('Da danh dau tat ca thong bao la da doc.');
+    } catch (e) {
+      debugPrint('Mark all notifications as read error: $e');
+
+      if (!mounted) return;
+
+      setState(() => _isMarkingAllRead = false);
+      _showMessage('Khong the danh dau tat ca thong bao da doc.');
+    }
+  }
+
+  IconData _notificationIcon(String type) {
+    switch (type) {
+      case 'task_assigned':
+        return Icons.assignment_ind_outlined;
+      case 'task_shared':
+        return Icons.share_outlined;
+      case 'task_completed':
+        return Icons.check_circle_outline;
+      case 'task_due_reminder':
+        return Icons.alarm_outlined;
+      case 'task_updated':
+        return Icons.edit_outlined;
+      default:
+        return Icons.notifications_outlined;
+    }
+  }
+
+  Future<void> _openNotification(Map<String, dynamic> notification) async {
+    await _markAsRead(notification);
+
+    if (!mounted) return;
+
+    final taskData = notification['task'];
+    final task = taskData is Map
+        ? Map<String, dynamic>.from(taskData)
+        : <String, dynamic>{};
+
+    final actorData = notification['actor'];
+    final actor = actorData is Map
+        ? Map<String, dynamic>.from(actorData)
+        : <String, dynamic>{};
+
+    final taskTitle = task['title']?.toString() ?? '';
+    final actorName = actor['name']?.toString() ?? '';
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          notification['title']?.toString() ?? 'Thong bao',
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: Colors.white,
-        side: BorderSide.none,
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                notification['message']?.toString() ?? '',
+                style: const TextStyle(height: 1.5),
+              ),
+              if (actorName.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text('Nguoi thuc hien: $actorName'),
+              ],
+              if (taskTitle.isNotEmpty) ...[
+                const Divider(height: 24),
+                const Text(
+                  'Cong viec lien quan',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(taskTitle, style: const TextStyle(fontSize: 16)),
+                if (task['status'] != null) ...[
+                  const SizedBox(height: 6),
+                  Text('Trang thai: ${statusLabel(task['status'].toString())}'),
+                ],
+                if (task['dueDate'] != null) ...[
+                  const SizedBox(height: 6),
+                  Text('Han: ${formatDate(task['dueDate'])}'),
+                ],
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Dong'),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return const Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.notifications_none, size: 75, color: Colors.grey),
+          SizedBox(height: 12),
+          Text(
+            'Ban chua co thong bao nao',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_outlined, color: Colors.red, size: 60),
+            const SizedBox(height: 12),
+            const Text('Khong the tai thong bao'),
+            const SizedBox(height: 12),
+            Text(
+              _loadError ?? '',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _loadNotifications,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Thu lai'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final unreadCount = _notifications
+        .where((notification) => notification['isRead'] != true)
+        .length;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Thong bao',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        actions: [
+          if (unreadCount > 0)
+            TextButton(
+              onPressed: _isMarkingAllRead ? null : _markAllAsRead,
+              child: _isMarkingAllRead
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Doc tat ca'),
+            ),
+          IconButton(
+            tooltip: 'Tai lai',
+            onPressed: _isLoading ? null : _loadNotifications,
+            icon: const Icon(Icons.refresh),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _loadError != null && _notifications.isEmpty
+          ? _buildErrorState()
+          : _notifications.isEmpty
+          ? _buildEmptyState()
+          : RefreshIndicator(
+              onRefresh: _loadNotifications,
+              child: ListView.separated(
+                padding: const EdgeInsets.all(12),
+                itemCount: _notifications.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final notification = _notifications[index];
+
+                  final type = notification['type']?.toString() ?? '';
+                  final isRead = notification['isRead'] == true;
+                  final message = notification['message']?.toString() ?? '';
+                  final createdAt = notification['createdAt'];
+
+                  return Card(
+                    color: isRead ? Colors.white : const Color(0xFFF0F0FF),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      side: const BorderSide(color: Color(0xFFE9EAF0)),
+                    ),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      leading: CircleAvatar(
+                        backgroundColor: const Color(0xFF5B5FEF)
+                            .withValues(alpha: 0.12),
+                        child: Icon(
+                          _notificationIcon(type),
+                          color: const Color(0xFF5B5FEF),
+                        ),
+                      ),
+                      title: Text(
+                        notification['title']?.toString() ?? 'Thong bao',
+                        style: TextStyle(
+                          fontWeight: isRead
+                              ? FontWeight.normal
+                              : FontWeight.bold,
+                        ),
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 5),
+                        child: Text(
+                          '$message\n${formatDate(createdAt)}',
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      isThreeLine: true,
+                      trailing: isRead
+                          ? null
+                          : const Icon(
+                              Icons.circle,
+                              color: Color(0xFF5B5FEF),
+                              size: 10,
+                            ),
+                      onTap: () => _openNotification(notification),
+                    ),
+                  );
+                },
+              ),
+            ),
     );
   }
 }
@@ -1198,6 +1635,7 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
 
   void _showMessage(String message) {
     if (!mounted) return;
+
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
   }
@@ -1245,7 +1683,9 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
       });
     } catch (e) {
       debugPrint('Load assignees error: $e');
+
       if (!mounted) return;
+
       setState(() => _isLoadingAssignees = false);
       _showMessage('Khong the tai danh sach nguoi duoc giao.');
     }
@@ -1279,7 +1719,9 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
       });
     } catch (e) {
       debugPrint('Load shares error: $e');
+
       if (!mounted) return;
+
       setState(() => _isLoadingShares = false);
       _showMessage('Khong the tai danh sach chia se.');
     }
@@ -1290,6 +1732,7 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
     final controller = forAssignees
         ? _assigneeSearchController
         : _shareSearchController;
+
     final query = controller.text.trim();
 
     if (query.length < 2) {
@@ -1311,9 +1754,11 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
       final uri = Uri.parse(
         '$apiBaseUrl/users/search?q=${Uri.encodeQueryComponent(query)}',
       );
+
       final response = await http
           .get(uri, headers: _headers)
           .timeout(const Duration(seconds: 15));
+
       final data = readJson(response.body);
 
       if (response.statusCode != 200) {
@@ -1341,7 +1786,9 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
       }
     } catch (e) {
       debugPrint('Search users error: $e');
+
       if (!mounted) return;
+
       setState(() {
         if (forAssignees) {
           _isSearchingAssignees = false;
@@ -1349,6 +1796,7 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
           _isSearchingShares = false;
         }
       });
+
       _showMessage('Khong the tim kiem nguoi dung.');
     }
   }
@@ -1385,6 +1833,7 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
 
     setState(() {
       _assignees.removeWhere((item) => item['_id']?.toString() == userId);
+
       if (_primaryAssigneeId == userId) {
         _primaryAssigneeId = null;
       }
@@ -1433,7 +1882,9 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
       _showMessage('Da cap nhat danh sach giao viec.');
     } catch (e) {
       debugPrint('Save assignees error: $e');
+
       if (!mounted) return;
+
       setState(() => _isSavingAssignees = false);
       _showMessage(e.toString().replaceFirst('Exception: ', ''));
     }
@@ -1458,7 +1909,7 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
 
       final data = readJson(response.body);
 
-      if (response.statusCode != 200) {
+      if (response.statusCode != 200 && response.statusCode != 201) {
         throw Exception(
           data['message']?.toString() ?? 'Khong the chia se cong viec.',
         );
@@ -1470,6 +1921,7 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
         _shareSearchResults = [];
         _shareSearchController.clear();
       });
+
       _showMessage('Chia se cong viec thanh cong.');
       await _loadShares();
     } catch (e) {
@@ -1520,6 +1972,7 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
     final user = userData is Map
         ? Map<String, dynamic>.from(userData)
         : <String, dynamic>{};
+
     final userName = user['name']?.toString() ?? 'nguoi dung nay';
 
     final confirm = await showDialog<bool>(
@@ -1551,9 +2004,8 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
           )
           .timeout(const Duration(seconds: 15));
 
-      final data = readJson(response.body);
-
-      if (response.statusCode != 200) {
+      if (response.statusCode != 200 && response.statusCode != 204) {
+        final data = readJson(response.body);
         throw Exception(
           data['message']?.toString() ?? 'Khong the thu hoi quyen chia se.',
         );
@@ -1567,78 +2019,60 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
     }
   }
 
-  Widget _buildSearchField({
-    required TextEditingController controller,
-    required bool isSearching,
-    required String hint,
-    required VoidCallback onSearch,
-  }) {
-    return Row(
-      children: [
-        Expanded(
-          child: TextField(
-            controller: controller,
-            keyboardType: TextInputType.emailAddress,
-            textInputAction: TextInputAction.search,
-            onSubmitted: (_) => onSearch(),
-            decoration: InputDecoration(
-              hintText: hint,
-              prefixIcon: const Icon(Icons.email_outlined),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFFE5E5EF)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFFE5E5EF)),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        IconButton.filled(
-          tooltip: 'Tim kiem',
-          onPressed: isSearching ? null : onSearch,
-          icon: isSearching
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.search),
-        ),
-      ],
-    );
-  }
-
+  // GIAO DIEN TAB GIAO VIEC
   Widget _buildAssigneesTab() {
-    if (_isLoadingAssignees) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         const Text(
-          'Tim nguoi dung theo email',
+          'Tim nguoi de giao viec',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 10),
-        _buildSearchField(
-          controller: _assigneeSearchController,
-          isSearching: _isSearchingAssignees,
-          hint: 'Nhap email can giao viec',
-          onSearch: () => _searchUsers(forAssignees: true),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _assigneeSearchController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  hintText: 'Nhap email nguoi dung',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (_) {
+                  _searchUsers(forAssignees: true);
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filled(
+              onPressed: _isSearchingAssignees
+                  ? null
+                  : () => _searchUsers(forAssignees: true),
+              icon: _isSearchingAssignees
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.search),
+            ),
+          ],
         ),
         if (_assigneeSearchResults.isNotEmpty) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           const Text(
-            'Ket qua tim kiem - chon + de them',
-            style: TextStyle(color: Colors.black54, fontSize: 12),
+            'Ket qua tim kiem',
+            style: TextStyle(fontWeight: FontWeight.bold),
           ),
+          const SizedBox(height: 6),
           ..._assigneeSearchResults.map((user) {
+            final id = user['_id']?.toString() ?? '';
+            final alreadyAdded = _assignees.any(
+              (item) => item['_id']?.toString() == id,
+            );
+
             return Card(
               color: Colors.white,
               child: ListTile(
@@ -1646,20 +2080,23 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
                 title: Text(user['name']?.toString() ?? 'Nguoi dung'),
                 subtitle: Text(user['email']?.toString() ?? ''),
                 trailing: IconButton(
-                  tooltip: 'Them vao danh sach giao viec',
-                  onPressed: () => _addAssignee(user),
-                  icon: const Icon(Icons.add_circle, color: Color(0xFF5B5FEF)),
+                  tooltip: alreadyAdded ? 'Da them' : 'Them',
+                  onPressed: alreadyAdded ? null : () => _addAssignee(user),
+                  icon: Icon(
+                    alreadyAdded ? Icons.check : Icons.add_circle,
+                    color: alreadyAdded ? Colors.green : null,
+                  ),
                 ),
               ),
             );
           }),
         ],
-        const SizedBox(height: 22),
+        const SizedBox(height: 24),
         Row(
           children: [
             const Expanded(
               child: Text(
-                'Nguoi duoc giao',
+                'Danh sach nguoi duoc giao',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
@@ -1667,125 +2104,173 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
               '${_assignees.length} nguoi',
               style: const TextStyle(color: Colors.grey),
             ),
+            IconButton(
+              tooltip: 'Tai lai',
+              onPressed: _loadAssignees,
+              icon: const Icon(Icons.refresh),
+            ),
           ],
         ),
-        const SizedBox(height: 4),
-        const Text(
-          'Chon nut radio de dat nguoi phu trach chinh.',
-          style: TextStyle(color: Colors.black54, fontSize: 12),
-        ),
-        const SizedBox(height: 8),
-        if (_assignees.isEmpty)
+        const SizedBox(height: 6),
+        if (_isLoadingAssignees)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (_assignees.isEmpty)
           const Card(
             color: Colors.white,
             child: Padding(
               padding: EdgeInsets.all(18),
               child: Text(
-                'Chua co ai duoc giao cong viec nay.',
+                'Chua giao cong viec cho ai.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey),
               ),
             ),
-          ),
-        ..._assignees.map((user) {
-          final userId = user['_id']?.toString() ?? '';
-          final isPrimary = userId.isNotEmpty && userId == _primaryAssigneeId;
+          )
+        else
+          ..._assignees.map((user) {
+            final id = user['_id']?.toString() ?? '';
+            final isPrimary = id == _primaryAssigneeId;
 
-          return Card(
-            color: Colors.white,
-            child: ListTile(
-              leading: Radio<String>(
-                value: userId,
-                groupValue: _primaryAssigneeId,
-                onChanged: (value) {
-                  setState(() => _primaryAssigneeId = value);
+            return Card(
+              color: Colors.white,
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: isPrimary
+                      ? const Color(0xFF5B5FEF)
+                      : Colors.grey.shade200,
+                  child: Icon(
+                    Icons.person_outline,
+                    color: isPrimary ? Colors.white : Colors.black54,
+                  ),
+                ),
+                title: Text(user['name']?.toString() ?? 'Nguoi dung'),
+                subtitle: Text(
+                  '${user['email'] ?? ''}'
+                  '${isPrimary ? '\nNguoi phu trach chinh' : ''}',
+                ),
+                isThreeLine: isPrimary,
+                trailing: IconButton(
+                  tooltip: 'Xoa khoi danh sach',
+                  onPressed: () => _removeAssignee(user),
+                  icon: const Icon(
+                    Icons.remove_circle_outline,
+                    color: Colors.red,
+                  ),
+                ),
+                onTap: () {
+                  setState(() {
+                    _primaryAssigneeId = id;
+                  });
                 },
               ),
-              title: Text(user['name']?.toString() ?? 'Nguoi dung'),
-              subtitle: Text(
-                '${user['email'] ?? ''}${isPrimary ? ' • Phu trach chinh' : ''}',
-              ),
-              trailing: IconButton(
-                tooltip: 'Xoa khoi danh sach',
-                onPressed: () => _removeAssignee(user),
-                icon: const Icon(Icons.close, color: Colors.red),
-              ),
-            ),
-          );
-        }),
-        const SizedBox(height: 14),
-        FilledButton.icon(
-          onPressed: _isSavingAssignees ? null : _saveAssignees,
-          icon: _isSavingAssignees
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Icon(Icons.save_outlined),
-          label: const Text('Luu danh sach giao viec'),
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF5B5FEF),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 14),
+            );
+          }),
+        if (_assignees.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          const Text(
+            'Cham vao mot nguoi de chon nguoi phu trach chinh.',
+            style: TextStyle(color: Colors.grey, fontSize: 12),
+          ),
+        ],
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 48,
+          child: FilledButton.icon(
+            onPressed: _isSavingAssignees ? null : _saveAssignees,
+            icon: _isSavingAssignees
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.save),
+            label: const Text('Luu danh sach giao viec'),
           ),
         ),
-        const SizedBox(height: 20),
       ],
     );
   }
 
+  // GIAO DIEN TAB CHIA SE
   Widget _buildSharesTab() {
-    if (_isLoadingShares) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         const Text(
-          'Chia se cong viec',
+          'Tim nguoi de chia se cong viec',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: _newSharePermission,
+        const SizedBox(height: 10),
+        TextField(
+          controller: _shareSearchController,
+          keyboardType: TextInputType.emailAddress,
           decoration: const InputDecoration(
-            labelText: 'Quyen khi chia se',
-            prefixIcon: Icon(Icons.security_outlined),
+            hintText: 'Nhap email nguoi dung',
+            prefixIcon: Icon(Icons.search),
             border: OutlineInputBorder(),
-            filled: true,
-            fillColor: Colors.white,
           ),
-          items: const [
-            DropdownMenuItem(value: 'viewer', child: Text('Viewer - Chi xem')),
-            DropdownMenuItem(
-              value: 'editor',
-              child: Text('Editor - Xem va chinh sua'),
-            ),
-          ],
-          onChanged: (value) {
-            if (value != null) {
-              setState(() => _newSharePermission = value);
-            }
+          onSubmitted: (_) {
+            _searchUsers(forAssignees: false);
           },
         ),
-        const SizedBox(height: 12),
-        _buildSearchField(
-          controller: _shareSearchController,
-          isSearching: _isSearchingShares,
-          hint: 'Nhap email nguoi muon chia se',
-          onSearch: () => _searchUsers(forAssignees: false),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            const Text('Quyen truy cap:'),
+            const SizedBox(width: 12),
+            Expanded(
+              child: DropdownButton<String>(
+                value: _newSharePermission,
+                isExpanded: true,
+                items: const [
+                  DropdownMenuItem(
+                    value: 'viewer',
+                    child: Text('Viewer - Chi xem'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'editor',
+                    child: Text('Editor - Chinh sua'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() {
+                      _newSharePermission = value;
+                    });
+                  }
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filled(
+              onPressed: _isSearchingShares
+                  ? null
+                  : () => _searchUsers(forAssignees: false),
+              icon: _isSearchingShares
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.search),
+            ),
+          ],
         ),
         if (_shareSearchResults.isNotEmpty) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           const Text(
             'Ket qua tim kiem',
-            style: TextStyle(color: Colors.black54, fontSize: 12),
+            style: TextStyle(fontWeight: FontWeight.bold),
           ),
+          const SizedBox(height: 6),
           ..._shareSearchResults.map((user) {
             return Card(
               color: Colors.white,
@@ -1793,10 +2278,13 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
                 leading: const CircleAvatar(child: Icon(Icons.person_outline)),
                 title: Text(user['name']?.toString() ?? 'Nguoi dung'),
                 subtitle: Text(user['email']?.toString() ?? ''),
-                trailing: TextButton.icon(
+                trailing: IconButton(
+                  tooltip: 'Chia se',
                   onPressed: () => _shareWithUser(user),
-                  icon: const Icon(Icons.share_outlined),
-                  label: const Text('Chia se'),
+                  icon: const Icon(
+                    Icons.share_outlined,
+                    color: Color(0xFF5B5FEF),
+                  ),
                 ),
               ),
             );
@@ -1823,7 +2311,14 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
           ],
         ),
         const SizedBox(height: 4),
-        if (_shares.isEmpty)
+        if (_isLoadingShares)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (_shares.isEmpty)
           const Card(
             color: Colors.white,
             child: Padding(
@@ -1834,56 +2329,59 @@ class _TaskMembersScreenState extends State<TaskMembersScreen> {
                 style: TextStyle(color: Colors.grey),
               ),
             ),
-          ),
-        ..._shares.map((share) {
-          final userData = share['userId'];
-          final user = userData is Map
-              ? Map<String, dynamic>.from(userData)
-              : <String, dynamic>{};
-          final permission = share['permission']?.toString() == 'editor'
-              ? 'editor'
-              : 'viewer';
+          )
+        else
+          ..._shares.map((share) {
+            final userData = share['userId'];
+            final user = userData is Map
+                ? Map<String, dynamic>.from(userData)
+                : <String, dynamic>{};
 
-          return Card(
-            color: Colors.white,
-            child: ListTile(
-              leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-              title: Text(user['name']?.toString() ?? 'Nguoi dung'),
-              subtitle: Text(
-                '${user['email'] ?? ''}\nQuyen: ${permission == 'editor' ? 'Editor - Chinh sua' : 'Viewer - Chi xem'}',
-              ),
-              isThreeLine: true,
-              trailing: PopupMenuButton<String>(
-                tooltip: 'Quan ly quyen',
-                onSelected: (value) {
-                  if (value == 'viewer' || value == 'editor') {
-                    _updateSharePermission(share, value);
-                  } else if (value == 'remove') {
-                    _deleteShare(share);
-                  }
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'viewer',
-                    child: Text('Doi thanh Viewer'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'editor',
-                    child: Text('Doi thanh Editor'),
-                  ),
-                  const PopupMenuDivider(),
-                  const PopupMenuItem(
-                    value: 'remove',
-                    child: Text(
-                      'Thu hoi quyen chia se',
-                      style: TextStyle(color: Colors.red),
+            final permission = share['permission']?.toString() == 'editor'
+                ? 'editor'
+                : 'viewer';
+
+            return Card(
+              color: Colors.white,
+              child: ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+                title: Text(user['name']?.toString() ?? 'Nguoi dung'),
+                subtitle: Text(
+                  '${user['email'] ?? ''}\n'
+                  'Quyen: ${permission == 'editor' ? 'Editor - Chinh sua' : 'Viewer - Chi xem'}',
+                ),
+                isThreeLine: true,
+                trailing: PopupMenuButton<String>(
+                  tooltip: 'Quan ly quyen',
+                  onSelected: (value) {
+                    if (value == 'viewer' || value == 'editor') {
+                      _updateSharePermission(share, value);
+                    } else if (value == 'remove') {
+                      _deleteShare(share);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'viewer',
+                      child: Text('Doi thanh Viewer'),
                     ),
-                  ),
-                ],
+                    const PopupMenuItem(
+                      value: 'editor',
+                      child: Text('Doi thanh Editor'),
+                    ),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem(
+                      value: 'remove',
+                      child: Text(
+                        'Thu hoi quyen chia se',
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          );
-        }),
+            );
+          }),
         const SizedBox(height: 20),
       ],
     );
@@ -2049,9 +2547,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                     return null;
                   },
                 ),
-
                 const SizedBox(height: 12),
-
                 TextFormField(
                   controller: _descriptionController,
                   maxLines: 3,
@@ -2063,11 +2559,9 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                     alignLabelWithHint: true,
                   ),
                 ),
-
                 const SizedBox(height: 12),
-
                 DropdownButtonFormField<String>(
-                  value: _priority,
+                  initialValue: _priority,
                   decoration: const InputDecoration(
                     labelText: 'Muc do uu tien',
                     prefixIcon: Icon(Icons.flag_outlined),
@@ -2087,11 +2581,9 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                     }
                   },
                 ),
-
                 const SizedBox(height: 12),
-
                 DropdownButtonFormField<String>(
-                  value: _status,
+                  initialValue: _status,
                   decoration: const InputDecoration(
                     labelText: 'Trang thai',
                     prefixIcon: Icon(Icons.sync),
@@ -2117,9 +2609,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                     }
                   },
                 ),
-
                 const SizedBox(height: 15),
-
                 Row(
                   children: [
                     const Icon(Icons.calendar_month, color: Colors.grey),
