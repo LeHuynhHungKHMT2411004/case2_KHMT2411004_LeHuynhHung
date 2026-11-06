@@ -151,5 +151,96 @@ router.get("/me", authMiddleware, (req, res) => {
   });
 });
 
+// Cap nhat thong tin ca nhan
+router.put("/me", authMiddleware, async (req, res) => {
+  try {
+    const { name } = req.body;
+
+    if (typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({
+        message: "Ho ten khong duoc de trong.",
+      });
+    }
+
+    if (name.trim().length > 100) {
+      return res.status(400).json({
+        message: "Ho ten toi da 100 ky tu.",
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { $set: { name: name.trim() } },
+      { new: true }
+    );
+
+    return res.status(200).json({
+      message: "Cap nhat thong tin ca nhan thanh cong.",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("Update profile error:", error.message);
+    return res.status(500).json({
+      message: "Loi may chu khi cap nhat thong tin.",
+    });
+  }
+});
+
+// Doi mat khau
+router.put("/change-password", authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (
+      typeof currentPassword !== "string" ||
+      typeof newPassword !== "string" ||
+      !currentPassword ||
+      !newPassword
+    ) {
+      return res.status(400).json({
+        message: "Vui long nhap mat khau hien tai va mat khau moi.",
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        message: "Mat khau moi phai co it nhat 8 ky tu.",
+      });
+    }
+
+    const user = await User.findById(req.user._id).select("+passwordHash");
+
+    if (!user) {
+      return res.status(404).json({
+        message: "Khong tim thay tai khoan.",
+      });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+
+    if (!isMatch) {
+      return res.status(400).json({
+        message: "Mat khau hien tai khong dung.",
+      });
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, 12);
+    await user.save();
+
+    return res.status(200).json({
+      message: "Doi mat khau thanh cong.",
+    });
+  } catch (error) {
+    console.error("Change password error:", error.message);
+    return res.status(500).json({
+      message: "Loi may chu khi doi mat khau.",
+    });
+  }
+});
 
 module.exports = router;

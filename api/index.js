@@ -19,6 +19,7 @@ app.use("/api/tasks", require("./routes/assignments"));
 app.use("/api/tasks", require("./routes/shares"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/notifications", require("./routes/notifications"));
+app.use("/api/statistics", require("./routes/statistics"));
 
 // API kiểm tra server
 app.get("/", (req, res) => {

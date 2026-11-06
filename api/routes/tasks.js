@@ -5,6 +5,8 @@ const Task = require("../models/Task");
 const TaskShare = require("../models/TaskShare");
 const authMiddleware = require("../middleware/authMiddleware");
 const { notifyUser } = require("../services/notificationService");
+const TaskActivity = require("../models/TaskActivity");
+const { recordTaskActivity } = require("../services/activityService");
 
 const router = express.Router();
 
@@ -169,6 +171,19 @@ router.post("/", async (req, res) => {
       createdBy: req.user._id,
     });
 
+        // Ghi lai lich su tao cong viec
+        await recordTaskActivity({
+          taskId: task._id,
+          userId: req.user._id,
+          action: "task_created",
+          details: {
+            title: task.title,
+            status: task.status,
+            priority: task.priority,
+            dueDate: task.dueDate,
+          },
+        });
+
     return res.status(201).json({
       message: "Tao cong viec thanh cong.",
       task,
@@ -247,6 +262,54 @@ router.get("/", async (req, res) => {
 
     return res.status(500).json({
       message: "Loi may chu khi lay danh sach cong viec.",
+    });
+  }
+});
+
+// READ ACTIVITIES: Lay lich su hoat dong cua cong viec
+router.get("/:id/activities", async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        message: "ID cong viec khong hop le.",
+      });
+    }
+
+    // Tim cong viec
+    const task = await Task.findById(req.params.id);
+
+    if (!task) {
+      return res.status(404).json({
+        message: "Khong tim thay cong viec.",
+      });
+    }
+
+    // Kiem tra quyen xem cong viec
+    const access = await getTaskAccess(task, req.user._id);
+
+    if (!access.canView) {
+      return res.status(404).json({
+        message: "Khong tim thay cong viec.",
+      });
+    }
+
+    // Lay toi da 100 hoat dong moi nhat
+    const activities = await TaskActivity.find({
+      taskId: task._id,
+    })
+      .populate("userId", "name email")
+      .sort({ createdAt: -1 })
+      .limit(100);
+
+    return res.status(200).json({
+      count: activities.length,
+      activities,
+    });
+  } catch (error) {
+    console.error("Get task activities error:", error.message);
+
+    return res.status(500).json({
+      message: "Loi may chu khi lay lich su hoat dong.",
     });
   }
 });
@@ -491,17 +554,53 @@ router.patch("/:id", async (req, res) => {
       return oldValue !== newValue;
     });
 
+        // Luu gia tri cu cua cac truong thay doi
+        const previousValues = {};
+
+        for (const field of changedFields) {
+          previousValues[field] = task[field];
+        }
+
     // Luu thay doi
     task.set(updates);
     await task.save();
 
     // Gui thong bao neu co thay doi thuc su
-    if (changedFields.length > 0) {
-      const isNewlyCompleted =
-        previousStatus !== "completed" &&
-        task.status === "completed";
+        if (changedFields.length > 0) {
+          const isNewlyCompleted =
+            previousStatus !== "completed" &&
+            task.status === "completed";
 
-      if (isNewlyCompleted) {
+          // Xac dinh loai hoat dong
+          let activityAction = "task_updated";
+
+          if (isNewlyCompleted) {
+            activityAction = "task_completed";
+          } else if (changedFields.includes("status")) {
+            activityAction = "status_changed";
+          }
+
+          // Luu gia tri moi cua cac truong thay doi
+          const newValues = {};
+
+          for (const field of changedFields) {
+            newValues[field] = task[field];
+          }
+
+          // Ghi lich su hoat dong
+          await recordTaskActivity({
+            taskId: task._id,
+            userId: req.user._id,
+            action: activityAction,
+            details: {
+              taskTitle: task.title,
+              changedFields,
+              previousValues,
+              newValues,
+            },
+          });
+
+          if (isNewlyCompleted) {
         // Thong bao khi cong viec duoc hoan thanh
         await notifyTaskParticipants(task, req.user._id, {
           type: "task_completed",
@@ -562,7 +661,7 @@ router.delete("/:id", async (req, res) => {
     }
 
     // Chi nguoi tao moi co quyen xoa cong viec
-    const task = await Task.findOneAndDelete({
+    const task = await Task.findOne({
       _id: req.params.id,
       createdBy: req.user._id,
     });
@@ -572,6 +671,19 @@ router.delete("/:id", async (req, res) => {
         message: "Khong tim thay cong viec.",
       });
     }
+
+    // Xoa cong viec
+    await task.deleteOne();
+
+    // Ghi lai lich su xoa cong viec
+    await recordTaskActivity({
+      taskId: task._id,
+      userId: req.user._id,
+      action: "task_deleted",
+      details: {
+        title: task.title,
+      },
+    });
 
     // Xoa tat ca quyen chia se cua cong viec
     const deletedShares = await TaskShare.deleteMany({

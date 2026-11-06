@@ -5,6 +5,7 @@ const Task = require("../models/Task");
 const User = require("../models/User");
 const authMiddleware = require("../middleware/authMiddleware");
 const { notifyUser } = require("../services/notificationService");
+const { recordTaskActivity } = require("../services/activityService");
 
 const router = express.Router();
 
@@ -87,6 +88,9 @@ router.put("/:taskId/assignees", async (req, res) => {
 
     // Lưu danh sách người được giao trước khi cập nhật
     const oldAssigneeIds = task.assigneeIds.map((id) => String(id));
+    const oldPrimaryAssigneeId = task.primaryAssigneeId
+      ? String(task.primaryAssigneeId)
+      : null;
 
     // Khong cho phep giao cong viec cho chinh nguoi tao
     if (uniqueUserIds.includes(String(req.user._id))) {
@@ -141,10 +145,43 @@ router.put("/:taskId/assignees", async (req, res) => {
 
     await task.save();
 
-    // Xác định những người vừa được giao công việc mới
-    const newlyAssignedIds = uniqueUserIds.filter(
-      (id) => !oldAssigneeIds.includes(String(id))
-    );
+        // Xac dinh nhung nguoi vua duoc giao moi
+        const newlyAssignedIds = uniqueUserIds.filter(
+          (id) => !oldAssigneeIds.includes(String(id))
+        );
+
+        // Xac dinh nhung nguoi bi go khoi cong viec
+        const removedAssigneeIds = oldAssigneeIds.filter(
+          (id) =>
+            !uniqueUserIds.some((newId) => String(newId) === id)
+        );
+
+        // Xac dinh nguoi phu trach chinh moi
+        const newPrimaryAssigneeId = selectedPrimaryId
+          ? String(selectedPrimaryId)
+          : null;
+
+        // Kiem tra danh sach co thay doi thuc su hay khong
+        const hasAssigneeChanges =
+          newlyAssignedIds.length > 0 ||
+          removedAssigneeIds.length > 0 ||
+          oldPrimaryAssigneeId !== newPrimaryAssigneeId;
+
+        // Ghi lich su neu co thay doi
+        if (hasAssigneeChanges) {
+          await recordTaskActivity({
+            taskId: task._id,
+            userId: req.user._id,
+            action: "assignees_updated",
+            details: {
+              taskTitle: task.title,
+              addedAssigneeIds: newlyAssignedIds.map((id) => String(id)),
+              removedAssigneeIds,
+              previousPrimaryAssigneeId: oldPrimaryAssigneeId,
+              newPrimaryAssigneeId,
+            },
+          });
+        }
 
     // Gửi thông báo cho từng người vừa được giao
     for (const userId of newlyAssignedIds) {
@@ -219,12 +256,29 @@ router.delete("/:taskId/assignees/:userId", async (req, res) => {
       (id) => String(id) !== userId
     );
 
-    // Neu xoa nguoi phu trach chinh thi bo trong truong nay
-    if (String(task.primaryAssigneeId) === userId) {
-      task.primaryAssigneeId = null;
-    }
+        // Kiem tra nguoi bi xoa co phai nguoi phu trach chinh khong
+        const wasPrimaryAssignee =
+          task.primaryAssigneeId &&
+          String(task.primaryAssigneeId) === userId;
 
-    await task.save();
+        // Neu xoa nguoi phu trach chinh thi bo trong truong nay
+        if (wasPrimaryAssignee) {
+          task.primaryAssigneeId = null;
+        }
+
+        await task.save();
+
+        // Ghi lich su xoa nguoi duoc giao
+        await recordTaskActivity({
+          taskId: task._id,
+          userId: req.user._id,
+          action: "assignee_removed",
+          details: {
+            taskTitle: task.title,
+            removedAssigneeId: userId,
+            wasPrimaryAssignee: Boolean(wasPrimaryAssignee),
+          },
+        });
 
     const updatedTask = await Task.findById(task._id)
       .populate("assigneeIds", "name email")

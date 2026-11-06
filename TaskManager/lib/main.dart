@@ -643,6 +643,20 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _showTaskActivities(Map<String, dynamic> task) async {
+    final id = task['_id']?.toString();
+    if (id == null || id.isEmpty) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (_) => TaskActivitiesDialog(
+        taskId: id,
+        taskTitle: task['title']?.toString() ?? 'Cong viec',
+        token: widget.token,
+      ),
+    );
+  }
+
   Future<void> _updateStatus(Map<String, dynamic> task, String status) async {
     final id = task['_id']?.toString();
     if (id == null || id.isEmpty) return;
@@ -837,6 +851,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: Color(0xFF5B5FEF),
                     ),
                   ),
+                IconButton(
+                  tooltip: 'Lich su hoat dong',
+                  onPressed: () => _showTaskActivities(task),
+                  icon: const Icon(
+                    Icons.history_outlined,
+                    color: Color(0xFF5B5FEF),
+                  ),
+                ),
                 if (hasActions)
                   PopupMenuButton<String>(
                     onSelected: (value) {
@@ -844,6 +866,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         _openTaskForm(task: task);
                       } else if (value == 'delete') {
                         _deleteTask(task);
+                      } else if (value == 'activities') {
+                        _showTaskActivities(task);
                       } else if (value.startsWith('status:')) {
                         _updateStatus(task, value.substring(7));
                       }
@@ -860,6 +884,16 @@ class _HomeScreenState extends State<HomeScreen> {
                             ],
                           ),
                         ),
+                      const PopupMenuItem(
+                        value: 'activities',
+                        child: Row(
+                          children: [
+                            Icon(Icons.history),
+                            SizedBox(width: 10),
+                            Text('Lich su hoat dong'),
+                          ],
+                        ),
+                      ),
                       if (canDelete)
                         const PopupMenuItem(
                           value: 'delete',
@@ -1035,6 +1069,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Thong ke',
+            onPressed: () {
+              Navigator.push<void>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => StatisticsScreen(token: widget.token),
+                ),
+              );
+            },
+            icon: const Icon(Icons.analytics_outlined),
+          ),
+          IconButton(
             tooltip: 'Thong bao',
             onPressed: _openNotifications,
             icon: Stack(
@@ -1176,6 +1222,953 @@ class _HomeScreenState extends State<HomeScreen> {
         icon: const Icon(Icons.add),
         label: const Text('Them cong viec'),
       ),
+    );
+  }
+}
+
+// =====================================================
+// STATISTICS SCREEN: THONG KE CONG VIEC
+// =====================================================
+
+class StatisticsScreen extends StatefulWidget {
+  final String token;
+
+  const StatisticsScreen({super.key, required this.token});
+
+  @override
+  State<StatisticsScreen> createState() => _StatisticsScreenState();
+}
+
+class _StatisticsScreenState extends State<StatisticsScreen> {
+  Map<String, dynamic>? _taskStats;
+  Map<String, dynamic>? _assignmentStats;
+  Map<String, dynamic>? _deadlineStats;
+  Map<String, dynamic>? _userData;
+
+  bool _isLoading = true;
+  String? _loadError;
+
+  Map<String, String> get _headers => {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ${widget.token}',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStatistics();
+  }
+
+  int _number(dynamic value) {
+    return value is num ? value.toInt() : 0;
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> _loadStatistics() async {
+    if (!mounted) return;
+
+    final hadData = _taskStats != null;
+
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
+
+    try {
+      final responses = await Future.wait([
+        http
+            .get(
+          Uri.parse('$apiBaseUrl/statistics/tasks'),
+          headers: _headers,
+        )
+            .timeout(const Duration(seconds: 15)),
+        http
+            .get(
+          Uri.parse('$apiBaseUrl/statistics/assignments'),
+          headers: _headers,
+        )
+            .timeout(const Duration(seconds: 15)),
+        http
+            .get(
+          Uri.parse('$apiBaseUrl/statistics/deadlines'),
+          headers: _headers,
+        )
+            .timeout(const Duration(seconds: 15)),
+        http
+            .get(
+          Uri.parse('$apiBaseUrl/auth/me'),
+          headers: _headers,
+        )
+            .timeout(const Duration(seconds: 15)),
+      ]);
+
+      final taskData = readJson(responses[0].body);
+      final assignmentData = readJson(responses[1].body);
+      final deadlineData = readJson(responses[2].body);
+      final userData = readJson(responses[3].body);
+
+      for (var i = 0; i < responses.length; i++) {
+        if (responses[i].statusCode != 200) {
+          final data = readJson(responses[i].body);
+          throw Exception(
+            data['message']?.toString() ?? 'Khong the tai du lieu.',
+          );
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _taskStats = taskData;
+        _assignmentStats = assignmentData;
+        _deadlineStats = deadlineData;
+        _userData = userData;
+        _isLoading = false;
+      });
+
+      if (hadData) {
+        _showMessage('Da cap nhat thong ke thanh cong.');
+      }
+    } catch (e) {
+      debugPrint('Load statistics error: $e');
+
+      if (!mounted) return;
+
+      setState(() {
+        _loadError = e.toString().replaceFirst('Exception: ', '');
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _openEditProfileDialog() async {
+    final userMap = _userData?['user'] is Map
+        ? Map<String, dynamic>.from(_userData!['user'])
+        : <String, dynamic>{};
+    final currentName = userMap['name']?.toString() ?? '';
+    final controller = TextEditingController(text: currentName);
+
+    final updatedName = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Chinh sua ho ten'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Ho va ten',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Huy'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                Navigator.pop(dialogContext, controller.text.trim());
+              }
+            },
+            child: const Text('Luu'),
+          ),
+        ],
+      ),
+    );
+
+    if (updatedName == null || updatedName.isEmpty || updatedName == currentName) return;
+
+    try {
+      final response = await http.put(
+        Uri.parse('$apiBaseUrl/auth/me'),
+        headers: _headers,
+        body: jsonEncode({'name': updatedName}),
+      );
+
+      final data = readJson(response.body);
+
+      if (response.statusCode == 200) {
+        _showMessage('Cap nhat ho ten thanh cong!');
+        await _loadStatistics();
+      } else {
+        _showMessage(data['message']?.toString() ?? 'Khong the cap nhat ho ten.');
+      }
+    } catch (e) {
+      debugPrint('Update profile error: $e');
+      _showMessage('Loi ket noi khi cap nhat ho ten.');
+    }
+  }
+
+  Future<void> _openChangePasswordDialog() async {
+    final currentPassController = TextEditingController();
+    final newPassController = TextEditingController();
+    final confirmPassController = TextEditingController();
+
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) {
+        String? errorMsg;
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Doi mat khau'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (errorMsg != null) ...[
+                    Text(
+                      errorMsg!,
+                      style: const TextStyle(color: Colors.red, fontSize: 13),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  TextField(
+                    controller: currentPassController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Mat khau hien tai',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: newPassController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Mat khau moi (>= 8 ky tu)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: confirmPassController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Xac nhan mat khau moi',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Huy'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final current = currentPassController.text;
+                  final next = newPassController.text;
+                  final confirm = confirmPassController.text;
+
+                  if (current.isEmpty || next.isEmpty || confirm.isEmpty) {
+                    setDialogState(() => errorMsg = 'Vui long nhap day du thong tin.');
+                    return;
+                  }
+                  if (next.length < 8) {
+                    setDialogState(() => errorMsg = 'Mat khau moi phai co it nhat 8 ky tu.');
+                    return;
+                  }
+                  if (next != confirm) {
+                    setDialogState(() => errorMsg = 'Xac nhan mat khau khong khop.');
+                    return;
+                  }
+
+                  Navigator.pop(dialogContext, {
+                    'currentPassword': current,
+                    'newPassword': next,
+                  });
+                },
+                child: const Text('Doi mat khau'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (result == null) return;
+
+    try {
+      final response = await http.put(
+        Uri.parse('$apiBaseUrl/auth/change-password'),
+        headers: _headers,
+        body: jsonEncode(result),
+      );
+
+      final data = readJson(response.body);
+
+      if (response.statusCode == 200) {
+        _showMessage('Doi mat khau thanh cong!');
+      } else {
+        _showMessage(data['message']?.toString() ?? 'Khong the doi mat khau.');
+      }
+    } catch (e) {
+      debugPrint('Change password error: $e');
+      _showMessage('Loi ket noi khi doi mat khau.');
+    }
+  }
+
+  void _logout() {
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const AuthScreen()),
+      (route) => false,
+    );
+  }
+
+  Widget _buildProfileCard() {
+    final userMap = _userData?['user'] is Map
+        ? Map<String, dynamic>.from(_userData!['user'])
+        : <String, dynamic>{};
+    final name = userMap['name']?.toString() ?? 'Nguoi dung';
+    final email = userMap['email']?.toString() ?? '';
+
+    return Card(
+      color: Colors.white,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: Color(0xFFE9EAF0)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: const Color(0xFF5B5FEF).withValues(alpha: 0.15),
+                  child: Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : 'U',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF5B5FEF),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF25264A),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        email,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _openEditProfileDialog,
+                    icon: const Icon(Icons.edit_outlined, size: 17),
+                    label: const Text('Doi ten'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _openChangePasswordDialog,
+                    icon: const Icon(Icons.lock_outline, size: 17),
+                    label: const Text('Doi mat khau'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: 'Dang xuat',
+                  onPressed: _logout,
+                  icon: const Icon(Icons.logout, color: Colors.red),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String title, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 20, bottom: 12),
+      child: Row(
+        children: [
+          Icon(icon, color: const Color(0xFF5B5FEF)),
+          const SizedBox(width: 9),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF25264A),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _metricCard(
+      String title,
+      int value,
+      IconData icon,
+      Color color,
+      ) {
+    return Card(
+      color: Colors.white,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: Color(0xFFE9EAF0)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 19,
+              backgroundColor: color.withValues(alpha: 0.12),
+              child: Icon(icon, color: color, size: 21),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '$value',
+                    style: const TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _metricGrid(List<Widget> cards) {
+    return GridView.count(
+      crossAxisCount: 2,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisSpacing: 10,
+      mainAxisSpacing: 10,
+      childAspectRatio: 2.15,
+      children: cards,
+    );
+  }
+
+  String _formatLocalDate(dynamic value) {
+    if (value == null) return 'Chua dat han';
+
+    final date = DateTime.tryParse(value.toString())?.toLocal();
+
+    if (date == null) return 'Khong xac dinh';
+
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/'
+        '${date.year}';
+  }
+
+  Widget _deadlineSection(
+      String title,
+      dynamic rawTasks, {
+        required bool isOverdue,
+      }) {
+    final tasks = rawTasks is List
+        ? rawTasks
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList()
+        : <Map<String, dynamic>>[];
+
+    final color = isOverdue ? Colors.red : Colors.orange;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(
+          title,
+          isOverdue ? Icons.warning_amber_rounded : Icons.event_available,
+        ),
+        if (tasks.isEmpty)
+          Card(
+            color: Colors.white,
+            elevation: 0,
+            child: ListTile(
+              leading: Icon(
+                Icons.check_circle_outline,
+                color: Colors.green,
+              ),
+              title: Text(
+                isOverdue
+                    ? 'Khong co cong viec qua han.'
+                    : 'Khong co cong viec sap den han.',
+                style: const TextStyle(fontSize: 13),
+              ),
+            ),
+          )
+        else
+          ...tasks.map((task) {
+            final primaryData = task['primaryAssigneeId'];
+            final primary = primaryData is Map
+                ? Map<String, dynamic>.from(primaryData)
+                : <String, dynamic>{};
+
+            final primaryName = primary['name']?.toString() ?? '';
+
+            return Card(
+              color: Colors.white,
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 9),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: const BorderSide(color: Color(0xFFE9EAF0)),
+              ),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: color.withValues(alpha: 0.12),
+                  child: Icon(Icons.task_alt, color: color),
+                ),
+                title: Text(
+                  task['title']?.toString() ?? 'Cong viec',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 5),
+                  child: Text(
+                    'Trang thai: ${statusLabel(task['status']?.toString() ?? '')}\n'
+                        'Uu tien: ${priorityLabel(task['priority']?.toString() ?? '')}\n'
+                        'Han: ${_formatLocalDate(task['dueDate'])}'
+                        '${primaryName.isNotEmpty ? '\nPhu trach: $primaryName' : ''}',
+                  ),
+                ),
+                isThreeLine: true,
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.cloud_off_outlined,
+              color: Colors.red,
+              size: 65,
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Khong the tai du lieu thong ke',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              _loadError ?? '',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _loadStatistics,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Thu lai'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    final byStatus = _taskStats?['byStatus'] is Map
+        ? Map<String, dynamic>.from(_taskStats!['byStatus'])
+        : <String, dynamic>{};
+
+    final taskStats = _taskStats!;
+    final assignmentStats = _assignmentStats!;
+    final deadlineStats = _deadlineStats!;
+
+    return RefreshIndicator(
+      onRefresh: _loadStatistics,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
+        children: [
+          if (_loadError != null)
+            Card(
+              color: Colors.red.shade50,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  'Khong the lam moi du lieu: $_loadError',
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
+            ),
+
+          _sectionTitle('Ho so ca nhan', Icons.person_outline),
+          _buildProfileCard(),
+
+          _sectionTitle('Tong quan cong viec', Icons.bar_chart),
+          _metricGrid([
+            _metricCard(
+              'Tong cong viec',
+              _number(taskStats['total']),
+              Icons.task_alt,
+              const Color(0xFF5B5FEF),
+            ),
+            _metricCard(
+              'Chua thuc hien',
+              _number(byStatus['todo']),
+              Icons.pending_actions,
+              Colors.blue,
+            ),
+            _metricCard(
+              'Dang thuc hien',
+              _number(byStatus['in_progress']),
+              Icons.autorenew,
+              Colors.orange,
+            ),
+            _metricCard(
+              'Hoan thanh',
+              _number(byStatus['completed']),
+              Icons.check_circle_outline,
+              Colors.green,
+            ),
+          ]),
+
+          _sectionTitle('Thong ke giao viec', Icons.assignment_ind_outlined),
+          _metricGrid([
+            _metricCard(
+              'Duoc giao cho toi',
+              _number(assignmentStats['assignedToMe']),
+              Icons.assignment_ind,
+              Colors.blue,
+            ),
+            _metricCard(
+              'Toi phu trach chinh',
+              _number(assignmentStats['primaryResponsible']),
+              Icons.person_pin,
+              Colors.deepPurple,
+            ),
+            _metricCard(
+              'Toi da giao',
+              _number(assignmentStats['assignedByMe']),
+              Icons.outbox_outlined,
+              Colors.teal,
+            ),
+          ]),
+
+          _sectionTitle('Theo doi thoi han', Icons.calendar_month),
+          _metricGrid([
+            _metricCard(
+              'Sap den han (7 ngay)',
+              _number(deadlineStats['dueSoonCount']),
+              Icons.event_available,
+              Colors.orange,
+            ),
+            _metricCard(
+              'Cong viec qua han',
+              _number(deadlineStats['overdueCount']),
+              Icons.warning_amber_rounded,
+              Colors.red,
+            ),
+          ]),
+
+          _deadlineSection(
+            'Cong viec sap den han',
+            deadlineStats['dueSoon'],
+            isOverdue: false,
+          ),
+
+          _deadlineSection(
+            'Cong viec qua han',
+            deadlineStats['overdue'],
+            isOverdue: true,
+          ),
+
+          const SizedBox(height: 12),
+          Center(
+            child: Text(
+              'Keo xuong de cap nhat thong ke',
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Ca nhan & Thong ke',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Tai lai',
+            onPressed: _isLoading ? null : _loadStatistics,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: _isLoading && _taskStats == null
+          ? const Center(child: CircularProgressIndicator())
+          : _loadError != null && _taskStats == null
+          ? _buildErrorState()
+          : _buildContent(),
+    );
+  }
+}
+
+// =====================================================
+// TASK ACTIVITIES DIALOG: LICH SU HOAT DONG CONG VIEC
+// =====================================================
+
+class TaskActivitiesDialog extends StatefulWidget {
+  final String taskId;
+  final String taskTitle;
+  final String token;
+
+  const TaskActivitiesDialog({
+    super.key,
+    required this.taskId,
+    required this.taskTitle,
+    required this.token,
+  });
+
+  @override
+  State<TaskActivitiesDialog> createState() => _TaskActivitiesDialogState();
+}
+
+class _TaskActivitiesDialogState extends State<TaskActivitiesDialog> {
+  List<Map<String, dynamic>> _activities = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActivities();
+  }
+
+  Future<void> _loadActivities() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final response = await http.get(
+        Uri.parse('$apiBaseUrl/tasks/${widget.taskId}/activities'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${widget.token}',
+        },
+      ).timeout(const Duration(seconds: 15));
+
+      final data = readJson(response.body);
+
+      if (response.statusCode == 200) {
+        final list = data['activities'];
+        if (list is List) {
+          setState(() {
+            _activities = list
+                .whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .toList();
+            _isLoading = false;
+          });
+        } else {
+          setState(() {
+            _activities = [];
+            _isLoading = false;
+          });
+        }
+      } else {
+        setState(() {
+          _error = data['message']?.toString() ?? 'Khong the tai lich su.';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _error = 'Loi ket noi Backend.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _actionText(String action, Map<String, dynamic> details) {
+    switch (action) {
+      case 'task_created':
+        return 'da tao cong viec';
+      case 'task_updated':
+        return 'da cap nhat noi dung';
+      case 'status_changed':
+        return 'da doi trang thai';
+      case 'task_completed':
+        return 'da hoan thanh cong viec';
+      case 'assignees_updated':
+        return 'da cap nhat nguoi duoc giao';
+      case 'assignee_removed':
+        return 'da xoa nguoi khoi danh sach duoc giao';
+      case 'task_shared':
+        return 'da chia se cong viec';
+      case 'share_permission_changed':
+        return 'da thay doi quyen chia se';
+      case 'share_revoked':
+        return 'da thu hoi quyen chia se';
+      case 'task_deleted':
+        return 'da xoa cong viec';
+      default:
+        return action;
+    }
+  }
+
+  IconData _actionIcon(String action) {
+    switch (action) {
+      case 'task_created':
+        return Icons.add_circle_outline;
+      case 'task_updated':
+        return Icons.edit_note;
+      case 'status_changed':
+        return Icons.swap_horiz;
+      case 'task_completed':
+        return Icons.check_circle_outline;
+      case 'assignees_updated':
+      case 'assignee_removed':
+        return Icons.assignment_ind_outlined;
+      case 'task_shared':
+      case 'share_permission_changed':
+      case 'share_revoked':
+        return Icons.share_outlined;
+      default:
+        return Icons.history;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Lich su hoat dong'),
+          const SizedBox(height: 4),
+          Text(
+            widget.taskTitle,
+            style: const TextStyle(fontSize: 13, color: Colors.grey),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 350,
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
+                : _activities.isEmpty
+                    ? const Center(child: Text('Chua co hoat dong nao.'))
+                    : ListView.separated(
+                        itemCount: _activities.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final item = _activities[index];
+                          final user = item['userId'] is Map
+                              ? Map<String, dynamic>.from(item['userId'])
+                              : <String, dynamic>{};
+
+                          final userName = user['name']?.toString() ?? 'Nguoi dung';
+                          final action = item['action']?.toString() ?? '';
+                          final details = item['details'] is Map
+                              ? Map<String, dynamic>.from(item['details'])
+                              : <String, dynamic>{};
+                          final createdAt = item['createdAt'];
+
+                          return ListTile(
+                            dense: true,
+                            leading: CircleAvatar(
+                              radius: 16,
+                              backgroundColor: const Color(0xFF5B5FEF).withValues(alpha: 0.1),
+                              child: Icon(
+                                _actionIcon(action),
+                                size: 18,
+                                color: const Color(0xFF5B5FEF),
+                              ),
+                            ),
+                            title: Text(
+                              '$userName ${_actionText(action, details)}',
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                            ),
+                            subtitle: Text(
+                              formatDate(createdAt),
+                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                          );
+                        },
+                      ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Dong'),
+        ),
+      ],
+    );
+  }
+}
     );
   }
 }

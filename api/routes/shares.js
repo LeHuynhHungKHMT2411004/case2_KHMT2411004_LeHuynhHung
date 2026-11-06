@@ -7,6 +7,7 @@ const Task = require("../models/Task");
 const User = require("../models/User");
 const TaskShare = require("../models/TaskShare");
 const { notifyUser } = require("../services/notificationService");
+const { recordTaskActivity } = require("../services/activityService");
 
 const router = express.Router();
 
@@ -138,6 +139,32 @@ router.post("/:taskId/shares", async (req, res) => {
       .populate("userId", "name email")
       .populate("sharedBy", "name email");
 
+          // Ghi lich su chia se hoac thay doi quyen
+          if (!existingShare) {
+            await recordTaskActivity({
+              taskId: task._id,
+              userId: req.user._id,
+              action: "task_shared",
+              details: {
+                taskTitle: task.title,
+                sharedUserId: String(userId),
+                permission,
+              },
+            });
+          } else if (existingShare.permission !== permission) {
+            await recordTaskActivity({
+              taskId: task._id,
+              userId: req.user._id,
+              action: "share_permission_changed",
+              details: {
+                taskTitle: task.title,
+                sharedUserId: String(userId),
+                previousPermission: existingShare.permission,
+                newPermission: permission,
+              },
+            });
+          }
+
     // Gui thong bao khi chia se moi hoac thay doi quyen
     if (!existingShare) {
       await notifyUser({
@@ -253,6 +280,21 @@ router.patch("/:taskId/shares/:shareId", async (req, res) => {
       .populate("userId", "name email")
       .populate("sharedBy", "name email");
 
+          // Ghi lich su neu quyen truy cap thuc su thay doi
+          if (existingShare.permission !== permission) {
+            await recordTaskActivity({
+              taskId: task._id,
+              userId: req.user._id,
+              action: "share_permission_changed",
+              details: {
+                taskTitle: task.title,
+                sharedUserId: String(existingShare.userId),
+                previousPermission: existingShare.permission,
+                newPermission: permission,
+              },
+            });
+          }
+
     // Gui thong bao neu quyen truy cap thuc su thay doi
     if (existingShare.permission !== permission) {
       await notifyUser({
@@ -324,6 +366,18 @@ router.delete("/:taskId/shares/:shareId", async (req, res) => {
       _id: shareId,
       taskId,
     });
+
+        // Ghi lich su thu hoi quyen chia se
+        await recordTaskActivity({
+          taskId: task._id,
+          userId: req.user._id,
+          action: "share_revoked",
+          details: {
+            taskTitle: task.title,
+            sharedUserId: String(existingShare.userId),
+            previousPermission: existingShare.permission,
+          },
+        });
 
     // Thong bao cho nguoi bi thu hoi quyen chia se
     await notifyUser({
