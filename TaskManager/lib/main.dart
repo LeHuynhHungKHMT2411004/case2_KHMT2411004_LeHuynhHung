@@ -1558,32 +1558,34 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   ),
                 ),
                 const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF25264A),
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        email,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                name,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
                 ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                email,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+        ),
               ],
             ),
-            const Divider(height: 24),
+
+        const Divider(height: 24),
             Row(
               children: [
                 Expanded(
@@ -1635,6 +1637,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
+
   Widget _metricCard(
       String title,
       int value,
@@ -1660,21 +1663,30 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             const SizedBox(width: 9),
             Expanded(
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    '$value',
-                    style: const TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.bold,
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '$value',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                   Text(
                     title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: true,
                     style: const TextStyle(
-                      fontSize: 11,
+                      fontSize: 10,
                       color: Colors.grey,
+                      height: 1.1,
                     ),
                   ),
                 ],
@@ -1685,6 +1697,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       ),
     );
   }
+
 
   Widget _metricGrid(List<Widget> cards) {
     return GridView.count(
@@ -1709,6 +1722,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         '${date.month.toString().padLeft(2, '0')}/'
         '${date.year}';
   }
+
 
   Widget _deadlineSection(
       String title,
@@ -1735,16 +1749,22 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           Card(
             color: Colors.white,
             elevation: 0,
-            child: ListTile(
-              leading: Icon(
-                Icons.check_circle_outline,
-                color: Colors.green,
-              ),
-              title: Text(
-                isOverdue
-                    ? 'Khong co cong viec qua han.'
-                    : 'Khong co cong viec sap den han.',
-                style: const TextStyle(fontSize: 13),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: const [
+                  Icon(
+                    Icons.check_circle_outline,
+                    color: Colors.green,
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Khong co cong viec.',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ],
               ),
             ),
           )
@@ -1757,6 +1777,12 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
             final primaryName = primary['name']?.toString() ?? '';
 
+            final details =
+                'Trang thai: ${statusLabel(task['status']?.toString() ?? '')}\n'
+                'Uu tien: ${priorityLabel(task['priority']?.toString() ?? '')}\n'
+                'Han: ${_formatLocalDate(task['dueDate'])}'
+                '${primaryName.isNotEmpty ? '\nPhu trach: $primaryName' : ''}';
+
             return Card(
               color: Colors.white,
               elevation: 0,
@@ -1765,31 +1791,48 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 borderRadius: BorderRadius.circular(14),
                 side: const BorderSide(color: Color(0xFFE9EAF0)),
               ),
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: color.withValues(alpha: 0.12),
-                  child: Icon(Icons.task_alt, color: color),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: color.withValues(alpha: 0.12),
+                      child: Icon(Icons.task_alt, color: color),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            task['title']?.toString() ?? 'Cong viec',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            details,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                title: Text(
-                  task['title']?.toString() ?? 'Cong viec',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                subtitle: Padding(
-                  padding: const EdgeInsets.only(top: 5),
-                  child: Text(
-                    'Trang thai: ${statusLabel(task['status']?.toString() ?? '')}\n'
-                        'Uu tien: ${priorityLabel(task['priority']?.toString() ?? '')}\n'
-                        'Han: ${_formatLocalDate(task['dueDate'])}'
-                        '${primaryName.isNotEmpty ? '\nPhu trach: $primaryName' : ''}',
-                  ),
-                ),
-                isThreeLine: true,
               ),
             );
           }),
       ],
     );
   }
+
 
   Widget _buildErrorState() {
     return Center(
